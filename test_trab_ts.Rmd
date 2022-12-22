@@ -1,0 +1,134 @@
+---
+title: "Trabalho Séries Temporais"
+author:
+  
+- 'Adriane Akemi nUSP: 11915623'
+
+- 'Álvaro Valentim nUSP: 10392150'
+
+- 'Emerson Miady nUSP: 11207943'
+
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(forecast)
+library(ggplot2)
+library(tseries)
+```
+
+# Objetivo
+
+O objetivo do grupo é usar as técnicas de séries temporais para ajustar algum modelo em um conjunto de dados, aplicando as seguintes etapas:
+
+1. Análise exploratória;
+2. Ajuste do modelo;
+3. Análise de resíduos;
+4. Previsão.
+
+# Dados
+
+Os dados utilizados são de vendas mensais (em dolar australiano) de uma loja de Souvenir localizada em um beach resort em Queensland, Australia, no período de 1987 a 1993, contendo assim, 84 observações temporais.
+
+```{r}
+dat <- scan("http://robjhyndman.com/tsdldata/data/fancy.dat")
+dat <- ts(dat, frequency=12, start=c(1987,1))
+dat
+```
+
+# Análise exploratória
+
+```{r}
+plot.ts(dat)
+
+ggseasonplot(dat, polar = TRUE)
+
+monthplot(dat)
+```
+
+O primeiro plot mostra uma tendência de crescimento da série conforme se passa os anos, indicando que a loja está em constante crescimento. Além disso, existe uma certa periodicidade nas vendas mensais.
+
+O segundo plot é uma confirmação do primeiro, já que em todos os anos o formato da curva se mantém aproximadamente, porém vemos um crescimento de sua área.
+
+O último plot indica que, as médias de vendas (linhas horizontais) aumentam no final do ano, atigindo um pico em dezembro.
+
+```{r}
+plot(decompose(dat))
+
+ggtsdisplay(dat)
+```
+
+Da decomposição da série, vemos que existe sazonalidade e uma clara tendência de crescimento nas vendas (série não estacionária), corroborando com as observações feitas anteriormente. Para tratar a tendência, podemos utilizar a diferença de lags entre as observações, ou seja, alterando o argumento "d" do ARIMA. 
+
+Vamos fazer o teste ADF (raiz unitária) com $d = 1$ para verificar se a série ainda é não estacionária.
+
+```{r}
+adf.test(diff(dat))
+```
+
+O $d = 1$ já indica que a série é estacionária, sendo assim, usaremos este parâmetro para o ARIMA.
+
+Para achar o "p" do AR, olhamos para a PACF, e um valor que queremos testar é 1. Isto porque existe um valor significante na primeira autocorrelação parcial. Já para descobrir o "q" do MA, observamos a FAC, e analogamente, escolhemos o "q" igual a 1.
+
+Então nosso modelo até o momento é $ARIMA(1, 1, 1)$.
+
+Dado que existe sazonalidade, vamos incluir a componente sazonal neste modelo.
+
+```{r}
+ggtsdisplay(dat, lag.max=60)
+```
+
+Os gráficos acima são os mesmos que os anteriores, só alterando o número de lags. No PACF, vemos um truncamento periódico (período = 12) em t = 12, e além disso, temos os lags periódicos do ACF decaindo lentamente, em t = 12, 24, 36...
+
+Sendo assim, supomos que o parâmetro "P" do SARIMA deve ser 1 e o "Q" é 0.
+
+Logo, o modelo que supomos foi um $SARIMA(1, 1, 1)(1, 1, 0)_{12}$
+
+# Ajuste
+
+```{r}
+training <- window(dat, end = c(1992,12))
+test <- window(dat, start = c(1993,1))
+fit <- Arima(training, order = c(1,1,1), seasonal = c(1,1,0),
+                 method = "ML", lambda = 0)
+
+checkresiduals(fit)
+```
+
+O teste de Ljung-Box verifica se a autocorrelação dos resíduos é igual a 0. Como o p-valor obtido foi maior que o nível de significância de 5%, não rejeitamos a hipótese nula e portanto, os resíduos não são autocorrelacionados.
+
+Vemos também que, as autocorrelações do ACF não passam da banda de confiança e a distribuição dos resíduos aparenta ser Normal.
+
+Para testar a normalidade deles, vamos usar o teste de Shapiro Wilk.
+
+```{r}
+shapiro.test(fit$residuals)
+```
+
+```{r}
+mean(fit$residuals)
+```
+
+A média dos resíduos foi praticamente 0, mostrando evidências de que a distribuição deles é $N(0, \sigma^2)$.
+
+# Predição
+
+```{r}
+forc <- forecast(object = fit, h=12, level = 0.95)
+
+
+autoplot(forc) + autolayer(test, series = "conjunto de teste") + autolayer(fitted(forc), series = "valores ajustados")
+
+accuracy(forc, test)
+```
+
+Aparentemente o modelo realizou um bom ajuste, com uma boa predição. Além de que as métricas MPE e MAPE dos conjuntos de treino e teste foram bem satisfatórios.
+
+# Conclusão
+
+Passamos por todas as etapas e um bom modelo a ser ajustado foi o $SARIMA(1, 1, 1)(1, 1, 0)_{12}$, com boas predições e métricas de avaliação.
+
